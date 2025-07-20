@@ -1,0 +1,31 @@
+name: Upload to Dropbox
+
+on:
+  push:
+    paths:
+      - 'files_to_upload/**'
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install Chrome & driver
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y chromium-browser chromium-chromedriver
+        sudo ln -s /usr/bin/chromium-browser /usr/bin/google-chrome
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: pip install selenium webdriver-manager
+
+    - name: Run upload script
+      run: python upload_to_dropbox.py

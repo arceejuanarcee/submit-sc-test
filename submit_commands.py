@@ -1,75 +1,43 @@
-import os
-import traceback
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from webdriver_manager.firefox import GeckoDriverManager
+import streamlit as st
+import requests
+import base64
 
-# ─── CONFIG ────────────────────────────────────────────────────────────────
-REQUEST_LINK = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
-TIMEOUT_SEC  = 30
-# ────────────────────────────────────────────────────────────────────────────
-
-def upload_via_selenium(request_url: str, filepath: str, name: str, email: str):
-    opts = FirefoxOptions()
-    opts.add_argument("--headless")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-
-    driver = webdriver.Firefox(
-        service=FirefoxService(GeckoDriverManager().install()),
-        options=opts
+def push_to_github(uploaded_file, filename):
+    token = st.secrets["GITHUB_PAT"]
+    username = st.secrets["GITHUB_USERNAME"]
+    repo = st.secrets["GITHUB_REPO"]
+    path = f"files_to_upload/{filename}"
+    url = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
+    content = base64.b64encode(uploaded_file.read()).decode("utf-8")
+    response = requests.put(
+        url,
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        },
+        json={
+            "message": f"Add {filename} from Streamlit",
+            "content": content,
+            "branch": "main"
+        }
     )
-
-    try:
-        driver.get(request_url)
-        wait = WebDriverWait(driver, TIMEOUT_SEC)
-
-        file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']")))
-        file_input.send_keys(os.path.abspath(filepath))
-
-        name_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='Add your name']")))
-        email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='you@example.com']")))
-        name_field.clear()
-        name_field.send_keys(name)
-        email_field.clear()
-        email_field.send_keys(email)
-
-        upload_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(normalize-space(.), 'Upload')]")))
-        upload_btn.click()
-        wait.until(EC.staleness_of(upload_btn))
-
-    finally:
-        driver.quit()
-
+    return response
 
 def show():
-    import streamlit as st
-    from pathlib import Path
-
-    st.title("📤 Submit Commands to TU")
-    uploaded_file = st.file_uploader("Select file to upload", type=["txt", "log"])
+    st.title("📤 Upload to Dropbox via GitHub Actions")
+    uploaded_file = st.file_uploader("Choose a file")
     name = st.text_input("Your Name")
     email = st.text_input("Your Email")
 
-    if st.button("Upload"):  
+    if st.button("Upload"):
         if not uploaded_file or not name or not email:
-            st.warning("Please provide file, name, and email.")
+            st.warning("Please complete all fields.")
         else:
-            # Save temp file
-            temp_path = Path(uploaded_file.name)
-            temp_path.write_bytes(uploaded_file.read())
-            try:
-                upload_via_selenium(REQUEST_LINK, str(temp_path), name, email)
-                st.success("File uploaded successfully!")
-            except Exception as err:
-                st.error(f"Upload failed: {err}")
-                st.exception(traceback.format_exc())
-            finally:
-                temp_path.unlink(missing_ok=True)
+            res = push_to_github(uploaded_file, uploaded_file.name)
+            if res.status_code == 201:
+                st.success("✅ File pushed to GitHub. GitHub Action will handle Dropbox upload.")
+            else:
+                st.error(f"❌ GitHub push failed: {res.status_code}\n{res.text}")
 
-    st.caption("Note: This uses a headless Firefox browser to submit to Dropbox request link.")
+if __name__ == "__main__":
+    show()
