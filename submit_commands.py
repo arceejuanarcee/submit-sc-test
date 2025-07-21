@@ -12,19 +12,35 @@ def push_to_github(file_content, filename, commit_message):
     url = f"https://api.github.com/repos/{username}/{repo}/contents/{path}"
 
     content = base64.b64encode(file_content).decode("utf-8")
+
+    # Check if file exists to get the SHA
+    sha = None
+    get_response = requests.get(
+        url,
+        headers={"Authorization": f"token {token}"}
+    )
+    if get_response.status_code == 200:
+        sha = get_response.json()["sha"]
+
+    payload = {
+        "message": commit_message,
+        "content": content,
+        "branch": "main"
+    }
+    if sha:
+        payload["sha"] = sha
+
+    # Upload (create or update)
     response = requests.put(
         url,
         headers={
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json"
         },
-        json={
-            "message": commit_message,
-            "content": content,
-            "branch": "main"
-        }
+        json=payload
     )
     return response
+
 
 def show():
     st.title("📤 Upload to Dropbox via GitHub Actions")
