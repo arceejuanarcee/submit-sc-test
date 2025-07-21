@@ -1,3 +1,4 @@
-#!/usr/bin/env bash
-# After pip install runs, fetch the Playwright browsers
-playwright install chromium
+#!/bin/bash
+apt-get update && apt-get install -y wget gnupg curl unzip
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+apt install -y ./google-chrome-stable_current_amd64.deb
