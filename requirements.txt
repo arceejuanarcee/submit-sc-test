@@ -2,5 +2,6 @@ selenium
 webdriver-manager
 streamlit
 requests
-chromium
-chromium-driver
+playwright
+pathlib
+beautifulsoup4
