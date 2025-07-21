@@ -2,8 +2,7 @@ import streamlit as st
 import tempfile
 from pathlib import Path
 import shutil
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -11,17 +10,13 @@ from selenium.webdriver.support import expected_conditions as EC
 REQUEST_LINK = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
 
 def upload_with_selenium(url: str, filepath: str, name: str, email: str):
-    options = Options()
+    options = uc.ChromeOptions()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
 
-    # Explicit path to Chrome binary if required (commented out for now)
-    # options.binary_location = "/usr/bin/google-chrome"
-
-    driver = webdriver.Chrome(options=options)
+    driver = uc.Chrome(options=options)
     wait = WebDriverWait(driver, 20)
 
     try:
