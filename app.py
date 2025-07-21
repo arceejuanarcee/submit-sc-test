@@ -1,115 +1,53 @@
-#!/usr/bin/env python3
-"""
-app.py
-
-Streamlit app to upload a file to a Dropbox File Request via pure HTTP.
-"""
-
 import streamlit as st
-import requests
-import time
-import json
 import tempfile
 from pathlib import Path
+from playwright.sync_api import sync_playwright
 
-# ————— CONFIG —————
-REQUEST_LINK       = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
-FILE_REQUEST_ID    = "tydarVR6Ty4qZEwGGTPd"
-OWNER_ID           = "28628469"
-UT_PARAM           = "QctBEbIm02vVqrYypQ3C"        # update if it rotates
-NS_ID_FOR_ROUTING  = "2099574545"
+REQUEST_LINK    = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
 
-# ———— UPLOAD FUNCTION ————
-def upload_via_http(request_link: str, filepath: str, user_name: str, user_email: str) -> bool:
-    session = requests.Session()
-    # 1) Seed cookies
-    session.get(request_link).raise_for_status()
-    t_cookie = session.cookies.get("t")
-    if not t_cookie:
-        raise Exception("Missing cookie ‘t’; did the initial GET succeed?")
+def upload_with_playwright(url: str, filepath: str, name: str, email: str):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page    = browser.new_page()
+        page.goto(url)
 
-    # 2) Single‑block upload
-    size = Path(filepath).stat().st_size
-    put_url = "https://dl-web.dropbox.com/put_block_returning_token_unauth"
-    put_params = {
-        "owner_id":           OWNER_ID,
-        "t":                  t_cookie,
-        "reported_block_size": str(size),
-        "num_blocks":         "1",
-        "ns_id_for_routing":  NS_ID_FOR_ROUTING,
-    }
-    put_headers = {
-        "Accept":       "*/*",
-        "Content-Type": "application/octet-stream",
-        "Origin":       "https://www.dropbox.com",
-        "Referer":      "https://www.dropbox.com/",
-    }
-    with open(filepath, "rb") as f:
-        chunk = f.read()
-    r1 = session.post(put_url, params=put_params, headers=put_headers, data=chunk)
-    r1.raise_for_status()
+        # attach file
+        page.set_input_files('input[type="file"]', filepath)
 
-    # **FIX**: Dropbox returns {"token": "...", "block_hash": "..."}
-    resp_json = r1.json()
-    block_token = resp_json.get("token")
-    if not block_token:
-        raise Exception(f"No block token in response: {resp_json}")
+        # fill metadata
+        page.fill('input[name="name"]', name)
+        page.fill('input[name="email"]', email)
 
-    # 3) Commit the upload
-    commit_url = "https://www.dropbox.com/drops/commit_file_request_by_token"
-    commit_params = {
-        "ut":                   UT_PARAM,
-        "token":                FILE_REQUEST_ID,
-        "submitted_email":      user_email,
-        "submitted_user_name":  user_name,
-        "user_id":              OWNER_ID,
-        "dest":                 "",
-        "client_ts":            str(int(time.time())),
-        "reported_total_size":  str(size),
-        "name":                 Path(filepath).name,
-        "t":                    t_cookie,
-    }
-    commit_headers = {
-        "Accept":       "*/*",
-        "Content-Type": "application/octet-stream",
-        "Origin":       "https://www.dropbox.com",
-        "Referer":      request_link,
-    }
-    body = json.dumps([block_token])
-    r2 = session.post(commit_url, params=commit_params, headers=commit_headers, data=body)
-    r2.raise_for_status()
+        # submit
+        page.click('button[type="submit"]')
 
-    result = r2.json()
-    if result.get("success") or result.get("status") == "ok":
-        return True
-    else:
-        raise Exception(f"Commit failed: {result}")
+        # wait for confirmation
+        page.wait_for_selector("text=Thank you", timeout=20000)
+        browser.close()
 
 # ————— Streamlit UI —————
-st.set_page_config(page_title="Upload to Dropbox Request")
+st.set_page_config(page_title="Upload via Playwright")
 st.title("📂 Upload File to Dropbox File Request")
 
-user_name   = st.text_input("Your Name")
-user_email  = st.text_input("Your Email")
-uploaded_file = st.file_uploader("Choose a file to upload")
+user_name    = st.text_input("Your Name")
+user_email   = st.text_input("Your Email")
+uploaded_file = st.file_uploader("Pick a file")
 
 if st.button("Upload"):
     if not uploaded_file:
-        st.error("Please choose a file first.")
+        st.error("Choose a file first.")
     elif not user_name or not user_email:
-        st.error("Please provide both your name and email.")
+        st.error("Enter both name and email.")
     else:
+        # persist to temp file
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             tmp.write(uploaded_file.getvalue())
             tmp_path = tmp.name
 
         try:
-            with st.spinner("Uploading..."):
-                success = upload_via_http(REQUEST_LINK, tmp_path, user_name, user_email)
-            if success:
-                st.success("✅ File uploaded successfully!")
-            else:
-                st.error("❌ Upload did not succeed.")
+            with st.spinner("Launching browser and uploading..."):
+                upload_with_playwright(REQUEST_LINK, tmp_path, user_name, user_email)
+            st.success("✅ Uploaded via real browser!")
         except Exception as e:
             st.error(f"❌ Upload failed: {e}")
         finally:
