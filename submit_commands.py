@@ -1,138 +1,115 @@
-import os
+#!/usr/bin/env python3
+"""
+submit_commands.py
+
+Upload a file to a Dropbox File Request via pure HTTP (no Selenium).
+"""
+
 import requests
+import time
+import json
+import sys
 from pathlib import Path
-from bs4 import BeautifulSoup
-import re
 
-# ─── CONFIG ────────────────────────────────────────────────────────────────
-REQUEST_LINK = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
-# ────────────────────────────────────────────────────────────────────────────
+# ———— CONFIG ————
+# The page you open to seed cookies:
+REQUEST_LINK    = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
+# The same ID in that URL:
+FILE_REQUEST_ID = "tydarVR6Ty4qZEwGGTPd"
+OWNER_ID        = "28628469"
+# The “ut=” value from your commit cURL (it may rotate per session):
+UT_PARAM        = "QctBEbIm02vVqrYypQ3C"
+# From your put_block URL query:
+NS_ID_FOR_ROUTING = "2099574545"
 
-def extract_form_data(html_content):
-    """Extract form action URL and hidden fields from Dropbox request page"""
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Find the upload form
-    form = soup.find('form')
-    if not form:
-        raise Exception("Could not find upload form on page")
-    
-    # Get form action URL
-    action = form.get('action')
-    if not action:
-        raise Exception("Could not find form action URL")
-    
-    # Extract hidden fields
-    hidden_fields = {}
-    for input_tag in form.find_all('input', type='hidden'):
-        name = input_tag.get('name')
-        value = input_tag.get('value', '')
-        if name:
-            hidden_fields[name] = value
-    
-    return action, hidden_fields
 
-def upload_via_http(request_url: str, filepath: str, name: str, email: str):
-    """Upload file using pure HTTP requests"""
-    
-    # Create a session to maintain cookies
+def upload_via_http(request_link: str, file_path: str, user_name: str, user_email: str):
     session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    })
-    
-    # Step 1: Get the upload page to extract form data
-    print("Getting upload form...")
-    response = session.get(request_url)
-    response.raise_for_status()
-    
-    # Step 2: Parse the form to get action URL and hidden fields
-    try:
-        action_url, hidden_fields = extract_form_data(response.text)
-        if not action_url.startswith('http'):
-            # Relative URL, make it absolute
-            from urllib.parse import urljoin
-            action_url = urljoin(request_url, action_url)
-    except Exception as e:
-        raise Exception(f"Failed to parse upload form: {e}")
-    
-    # Step 3: Prepare the upload data
-    print(f"Uploading to: {action_url}")
-    
-    # Prepare files
-    with open(filepath, 'rb') as f:
-        files = {
-            'file': (os.path.basename(filepath), f, 'text/plain')
-        }
-        
-        # Prepare form data
-        data = hidden_fields.copy()
-        data.update({
-            'name': name,
-            'email': email
-        })
-        
-        # Step 4: Upload the file
-        upload_response = session.post(action_url, files=files, data=data)
-    
-    # Step 5: Check if upload was successful
-    if upload_response.status_code in [200, 302]:
-        # Check response content for success indicators
-        if 'success' in upload_response.text.lower() or upload_response.status_code == 302:
-            return True
-        else:
-            # Look for error messages in the response
-            soup = BeautifulSoup(upload_response.text, 'html.parser')
-            error_elements = soup.find_all(text=re.compile('error|failed|invalid', re.I))
-            if error_elements:
-                raise Exception(f"Upload may have failed: {error_elements[0]}")
+
+    # 1) GET the request page so Dropbox sets cookies (t, csrf, etc.)
+    resp = session.get(request_link)
+    resp.raise_for_status()
+
+    # Grab the 't' cookie for both calls
+    t_cookie = session.cookies.get("t")
+    if not t_cookie:
+        raise Exception("Missing cookie 't'; did initial GET succeed?")
+
+    # 2) UPLOAD THE CHUNK (single‑block example)
+    size = Path(file_path).stat().st_size
+    put_url = "https://dl-web.dropbox.com/put_block_returning_token_unauth"
+    put_params = {
+        "owner_id":          OWNER_ID,
+        "t":                 t_cookie,
+        "reported_block_size": str(size),
+        "num_blocks":        "1",
+        "ns_id_for_routing": NS_ID_FOR_ROUTING,
+    }
+    put_headers = {
+        "Accept":       "*/*",
+        "Content-Type": "application/octet-stream",
+        "Origin":       "https://www.dropbox.com",
+        "Referer":      "https://www.dropbox.com/",
+    }
+
+    with open(file_path, "rb") as f:
+        chunk = f.read()
+    r1 = session.post(put_url,
+                      params=put_params,
+                      headers=put_headers,
+                      data=chunk)
+    r1.raise_for_status()
+
+    # Extract the returned block_token
+    block_token = r1.json().get("block_token")
+    if not block_token:
+        raise Exception(f"No block_token in response: {r1.text}")
+
+    # 3) COMMIT THE UPLOAD
+    commit_url = "https://www.dropbox.com/drops/commit_file_request_by_token"
+    commit_params = {
+        "ut":                UT_PARAM,
+        "token":             FILE_REQUEST_ID,
+        "submitted_email":   user_email,
+        "submitted_user_name": user_name,
+        "user_id":           OWNER_ID,
+        "dest":              "",
+        "client_ts":         str(int(time.time())),
+        "reported_total_size": str(size),
+        "name":              Path(file_path).name,
+        "t":                 t_cookie,
+    }
+    commit_headers = {
+        "Accept":       "*/*",
+        "Content-Type": "application/octet-stream",
+        "Origin":       "https://www.dropbox.com",
+        "Referer":      request_link,
+    }
+
+    # Body is a raw JSON array of block tokens
+    body = json.dumps([block_token])
+    r2 = session.post(commit_url,
+                      params=commit_params,
+                      headers=commit_headers,
+                      data=body)
+    r2.raise_for_status()
+
+    result = r2.json()
+    if result.get("success") or result.get("status") == "ok":
+        return True
     else:
-        raise Exception(f"Upload failed with status {upload_response.status_code}: {upload_response.text[:500]}")
-    
-    return True
+        raise Exception(f"Commit failed: {result}")
 
-def show():
-    import streamlit as st
-    from pathlib import Path
-    import traceback
 
-    st.title("📤 Submit Commands to TU")
-    
-    # Check if required packages are available
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Usage: submit_commands.py <file_path> <Your Name> <your_email>")
+        sys.exit(1)
+
+    file_path, name, email = sys.argv[1], sys.argv[2], sys.argv[3]
     try:
-        import requests
-        from bs4 import BeautifulSoup
-        packages_available = True
-    except ImportError as e:
-        packages_available = False
-        st.error(f"Required packages not installed: {e}")
-        st.info("Add to requirements.txt: requests, beautifulsoup4")
-    
-    uploaded_file = st.file_uploader("Select file to upload", type=["txt", "log"])
-    name = st.text_input("Your Name")
-    email = st.text_input("Your Email")
-
-    if st.button("Upload"):  
-        if not uploaded_file or not name or not email:
-            st.warning("Please provide file, name, and email.")
-        elif not packages_available:
-            st.error("Required packages are not installed.")
-        else:
-            # Save temp file
-            temp_path = Path(uploaded_file.name)
-            temp_path.write_bytes(uploaded_file.read())
-            
-            with st.spinner("Uploading file..."):
-                try:
-                    upload_via_http(REQUEST_LINK, str(temp_path), name, email)
-                    st.success("File uploaded successfully!")
-                except Exception as err:
-                    st.error(f"Upload failed: {err}")
-                    
-                    # Show detailed error for debugging
-                    with st.expander("Show detailed error"):
-                        st.code(traceback.format_exc())
-                finally:
-                    temp_path.unlink(missing_ok=True)
-
-    st.caption("Note: This uses HTTP requests to submit directly to Dropbox.")
+        ok = upload_via_http(REQUEST_LINK, file_path, name, email)
+        print("✅ Upload succeeded!" if ok else "❌ Upload failed.")
+    except Exception as e:
+        print("❌ Error during upload:", e)
+        sys.exit(1)
