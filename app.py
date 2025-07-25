@@ -1,36 +1,45 @@
 import streamlit as st
-import json
 import tempfile
+import json
 from pathlib import Path
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
+# --- Set up page ---
+st.set_page_config(page_title="Upload File to Google Drive")
+st.title("📂 Upload File to Google Drive")
+
+# --- Google Drive Setup ---
 def get_google_drive():
-    creds = st.secrets["google"]
-    with tempfile.NamedTemporaryFile(delete=False, mode="w") as f:
-        json.dump(dict(creds), f)
-        credentials_path = f.name
+    creds = dict(st.secrets["google"])
+
+    # Write credentials to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode="w") as tmp:
+        json.dump(creds, tmp)
+        credentials_path = tmp.name
 
     gauth = GoogleAuth()
-    gauth.LoadServiceConfigFile()
-    gauth.LoadCredentialsFile(credentials_path)
-    gauth.Authorize()
+    gauth.LoadServiceConfigSettings()
+    gauth.ServiceAuth(credentials_path)
 
     return GoogleDrive(gauth)
 
-def upload_to_gdrive(file_path: str, filename: str):
+# --- Upload Logic ---
+def upload_to_drive(file_path, filename, name, email):
     drive = get_google_drive()
-    gfile = drive.CreateFile({'title': filename})
-    gfile.SetContentFile(file_path)
-    gfile.Upload()
-    return gfile['alternateLink']
 
-st.set_page_config(page_title="Upload File to Google Drive")
-st.title("📁 Upload File to Google Drive")
+    # Create metadata with name and email (if needed)
+    file = drive.CreateFile({
+        'title': filename,
+        'description': f"Uploaded by: {name} ({email})"
+    })
+    file.SetContentFile(file_path)
+    file.Upload()
 
+# --- Streamlit Form ---
 user_name = st.text_input("Your Name")
 user_email = st.text_input("Your Email")
-uploaded_file = st.file_uploader("Choose a file to upload")
+uploaded_file = st.file_uploader("Choose a file to upload", type=["txt", "pdf", "png", "jpg", "csv", "zip"])
 
 if st.button("Upload"):
     if not uploaded_file:
@@ -44,8 +53,8 @@ if st.button("Upload"):
 
         try:
             with st.spinner("Uploading to Google Drive..."):
-                uploaded_url = upload_to_gdrive(tmp_path, uploaded_file.name)
-            st.success(f"✅ File uploaded successfully! [View File]({uploaded_url})")
+                upload_to_drive(tmp_path, uploaded_file.name, user_name, user_email)
+            st.success("✅ File uploaded successfully to Google Drive!")
         except Exception as e:
             st.error(f"❌ Upload failed: {e}")
         finally:
