@@ -7,12 +7,12 @@ from pydrive2.drive import GoogleDrive
 # --- Google Drive Setup ---
 def authorize_drive():
     gauth = ServiceAccountCredentials()
-    gauth.LoadServiceConfigFile("service_account.json")
+    gauth.LoadServiceConfigFile("submit-sc-d36fa519abf2.json")
     gauth.Authorize()
     return GoogleDrive(gauth)
 
 # 📁 Replace this with your target Google Drive folder ID
-FOLDER_ID = "YOUR_GOOGLE_DRIVE_FOLDER_ID"
+FOLDER_ID = "D2 Commands"
 
 def upload_to_drive(drive, filename, content, metadata):
     # Upload the file
