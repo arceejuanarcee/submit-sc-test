@@ -5,7 +5,6 @@ from pathlib import Path
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from google.oauth2 import service_account
-from pydrive2.auth import ServiceAuth
 
 # --- Load credentials from Streamlit secrets ---
 def get_drive():
@@ -16,7 +15,7 @@ def get_drive():
         json.dump(creds_dict, f)
         credentials_path = f.name
 
-    # Use GoogleAuth with service account credentials
+    # Authenticate using the service account
     gauth = GoogleAuth()
     gauth.settings["get_refresh_token"] = False
     gauth.credentials = service_account.Credentials.from_service_account_file(credentials_path)
