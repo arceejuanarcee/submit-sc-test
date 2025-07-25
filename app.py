@@ -5,13 +5,12 @@ from pathlib import Path
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 
-# --- Page config ---
 st.set_page_config(page_title="Upload File to Google Drive")
 st.title("📂 Upload File to Google Drive")
 
 # --- Authenticate and return Drive instance ---
 def get_drive():
-    creds_dict = st.secrets["google"]
+    creds_dict = dict(st.secrets["google"])  # ✅ FIXED here
 
     # Save secrets to a temp file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -19,12 +18,8 @@ def get_drive():
         credentials_path = f.name
 
     gauth = GoogleAuth()
-    gauth.LoadCredentialsFile(credentials_path)
-    if not gauth.credentials:
-        gauth.LoadServiceConfigSettings()  # Not required actually
-        gauth.ServiceAuth()
-    else:
-        gauth.Authorize()
+    gauth.LoadServiceConfigFile(credentials_path)  # Load as config file
+    gauth.ServiceAuth()
 
     return GoogleDrive(gauth)
 
@@ -38,7 +33,7 @@ def upload_to_drive(file_path, filename, name, email):
     gfile.SetContentFile(file_path)
     gfile.Upload()
 
-# --- Streamlit form ---
+# --- Streamlit UI ---
 user_name = st.text_input("Your Name")
 user_email = st.text_input("Your Email")
 uploaded_file = st.file_uploader("Choose a file to upload")
