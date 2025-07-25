@@ -4,23 +4,22 @@ import json
 from pathlib import Path
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
+from google.oauth2 import service_account
+from pydrive2.auth import ServiceAuth
 
-st.set_page_config(page_title="Upload File to Google Drive")
-st.title("📂 Upload File to Google Drive")
-
-# --- Authenticate and return Drive instance ---
+# --- Load credentials from Streamlit secrets ---
 def get_drive():
-    creds_dict = dict(st.secrets["google"])  # ✅ FIXED here
+    creds_dict = dict(st.secrets["google"])
 
-    # Save secrets to a temp file
+    # Create temporary credentials JSON file
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(creds_dict, f)
         credentials_path = f.name
 
+    # Use GoogleAuth with service account credentials
     gauth = GoogleAuth()
-    gauth.LoadServiceConfigFile(credentials_path)  # Load as config file
-    gauth.ServiceAuth()
-
+    gauth.settings["get_refresh_token"] = False
+    gauth.credentials = service_account.Credentials.from_service_account_file(credentials_path)
     return GoogleDrive(gauth)
 
 # --- Upload logic ---
@@ -34,6 +33,9 @@ def upload_to_drive(file_path, filename, name, email):
     gfile.Upload()
 
 # --- Streamlit UI ---
+st.set_page_config(page_title="Upload File to Google Drive")
+st.title("📂 Upload File to Google Drive")
+
 user_name = st.text_input("Your Name")
 user_email = st.text_input("Your Email")
 uploaded_file = st.file_uploader("Choose a file to upload")
