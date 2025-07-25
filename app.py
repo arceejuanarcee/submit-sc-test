@@ -1,72 +1,56 @@
 import streamlit as st
 import tempfile
-from pathlib import Path
-import shutil
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import json
+from pydrive2.auth import ServiceAccountCredentials
+from pydrive2.drive import GoogleDrive
 
-# Your Dropbox File Request link
-REQUEST_LINK = "https://www.dropbox.com/request/tydarVR6Ty4qZEwGGTPd"
+# --- Google Drive Setup ---
+def authorize_drive():
+    gauth = ServiceAccountCredentials()
+    gauth.LoadServiceConfigFile("service_account.json")
+    gauth.Authorize()
+    return GoogleDrive(gauth)
 
-def upload_with_selenium(url: str, filepath: str, name: str, email: str):
-    options = uc.ChromeOptions()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
+# 📁 Replace this with your target Google Drive folder ID
+FOLDER_ID = "YOUR_GOOGLE_DRIVE_FOLDER_ID"
 
-    # ✅ Explicit path to the Chrome binary
-    chrome_path = "/usr/bin/google-chrome"
+def upload_to_drive(drive, filename, content, metadata):
+    # Upload the file
+    file_drive = drive.CreateFile({'title': filename, 'parents': [{'id': FOLDER_ID}]})
+    file_drive.SetContentString(content.decode())
+    file_drive.Upload()
 
-    driver = uc.Chrome(options=options, browser_executable_path=chrome_path)
-    wait = WebDriverWait(driver, 20)
-
-    try:
-        driver.get(url)
-
-        file_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="file"]')))
-        file_input.send_keys(filepath)
-
-        name_input = driver.find_element(By.NAME, "name")
-        email_input = driver.find_element(By.NAME, "email")
-        name_input.send_keys(name)
-        email_input.send_keys(email)
-
-        submit_button = driver.find_element(By.CSS_SELECTOR, 'button[type="submit"]')
-        submit_button.click()
-
-        wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Thank you')]")))
-
-    finally:
-        driver.quit()
-
+    # Upload the metadata
+    meta_name = f"{filename}.meta.json"
+    meta_drive = drive.CreateFile({'title': meta_name, 'parents': [{'id': FOLDER_ID}]})
+    meta_drive.SetContentString(json.dumps(metadata))
+    meta_drive.Upload()
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Upload File to Dropbox")
-st.title("📂 Upload File to Dropbox File Request")
+st.set_page_config(page_title="Upload File to Google Drive")
+st.title("📁 Upload File for Processing")
 
 user_name = st.text_input("Your Name")
 user_email = st.text_input("Your Email")
-uploaded_file = st.file_uploader("Choose a file to upload")
+uploaded_file = st.file_uploader("Upload your .txt command file")
 
 if st.button("Upload"):
     if not uploaded_file:
-        st.error("❗ Please choose a file to upload.")
+        st.error("❗ Please choose a file.")
     elif not user_name or not user_email:
         st.error("❗ Please enter both your name and email.")
     else:
-        # Save uploaded file temporarily
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(uploaded_file.getvalue())
-            tmp_path = tmp.name
-
         try:
-            with st.spinner("Launching browser and uploading..."):
-                upload_with_selenium(REQUEST_LINK, tmp_path, user_name, user_email)
-            st.success("✅ File uploaded successfully!")
+            drive = authorize_drive()
+            metadata = {
+                "filename": uploaded_file.name,
+                "name": user_name,
+                "email": user_email
+            }
+
+            file_content = uploaded_file.getvalue()
+            upload_to_drive(drive, uploaded_file.name, file_content, metadata)
+
+            st.success("✅ File and metadata uploaded to Google Drive!")
         except Exception as e:
             st.error(f"❌ Upload failed: {e}")
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
