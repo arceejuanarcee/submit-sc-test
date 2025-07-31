@@ -1,8 +1,3 @@
 streamlit
 selenium
-<<<<<<< HEAD
 webdriver_manager
-=======
-undetected-chromedriver
-pydrive2
->>>>>>> 6c1f89e337bccb726e104a955f7528f5478835ab
